@@ -1,3 +1,4 @@
+require('dotenv').config();
 const { REST, Routes, SlashCommandBuilder } = require('discord.js');
 
 const commands = [
@@ -9,7 +10,7 @@ const commands = [
     .setDescription('Send the verification message')
 ];
 
-const rest = new REST().setToken('MTQyNjk5NTI1NzYwOTgxNDIwOQ.GJKEEN.nimiDtu4fpgWgdwqvSdpJ9t5XDLbP0KhRlaJe0');
+const rest = new REST().setToken(process.env.TOKEN);
 
 (async () => {
   try {

@@ -1,6 +1,8 @@
 const { Client, GatewayIntentBits, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType } = require('discord.js');
 const express = require('express');
 const axios = require('axios');
+require('dotenv').config();
+
 
 const client = new Client({
   intents: [
@@ -10,14 +12,14 @@ const client = new Client({
 });
 
 // Configuration
-const TOKEN = 'MTQyNjk5NTI1NzYwOTgxNDIwOQ.GJKEEN.nimiDtu4fpgWgdwqvSdpJ9t5XDLbP0KhRlaJe0';
+const TOKEN = process.env.TOKEN;
 const CLIENT_ID = '1426995257609814209';
-const CLIENT_SECRET = 'kzxAJsnQyzVtTjktsFPyhrcLyC1CmZS4';
-const REDIRECT_URI = 'http://localhost:3000/callback'; // Must be localhost for callback to work
+const CLIENT_SECRET = process.env.CLIENT_SECRET;
+const REDIRECT_URI = 'http://localhost:3000/callback';
 const VERIFY_CHANNEL_ID = '1454952975171719352';
 const UNVERIFIED_ROLE_NAME = 'Unverified';
 const VERIFIED_ROLE_NAME = 'Verified';
-const ADDITIONAL_ROLE_ID = ''; // Optional: Add your custom role ID here (leave empty if not needed)
+const ADDITIONAL_ROLE_ID = '';
 
 // Store pending verifications
 const pendingVerifications = new Map();
