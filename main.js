@@ -147,8 +147,8 @@ client.on('interactionCreate', async interaction => {
     };
 
     await interaction.channel.send({
-      embeds: [embed],
-      components: [row]
+    embeds: [embed],
+    components: [row]
     });
 
     await interaction.reply({ content: 'Verification message sent!', ephemeral: true });
