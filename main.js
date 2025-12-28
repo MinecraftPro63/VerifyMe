@@ -146,12 +146,12 @@ client.on('interactionCreate', async interaction => {
       timestamp: new Date().toISOString()
     };
 
+    await interaction.reply({ content: 'Verification message sent!', ephemeral: true });
+
     await interaction.channel.send({
     embeds: [embed],
     components: [row]
     });
-
-    await interaction.reply({ content: 'Verification message sent!', ephemeral: true });
   }
 });
 
