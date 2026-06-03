@@ -1,7 +1,7 @@
-const { Client, GatewayIntentBits, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType } = require('discord.js');
+require('dotenv').config();
+const { Client, GatewayIntentBits, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, REST, Routes } = require('discord.js');
 const express = require('express');
 const axios = require('axios');
-require('dotenv').config();
 
 const client = new Client({
   intents: [
@@ -24,6 +24,47 @@ const users = new Map();
 
 const app = express();
 app.enable('trust proxy');
+
+// ─── Register Commands ───────────────────────────────────────────────────────
+
+const commands = [
+  {
+    name: 'setup-verify',
+    description: 'Setup the verification system (Admin only)',
+  },
+  {
+    name: 'send-verify',
+    description: 'Send the verification message in this channel (Admin only)',
+  },
+  {
+    name: 'add-to-server',
+    description: 'Add all verified users to another server (Admin only)',
+    options: [
+      {
+        name: 'serverid',
+        description: 'The ID of the server to add users to',
+        type: 3, // STRING
+        required: true,
+      }
+    ]
+  }
+];
+
+async function registerCommands() {
+  const rest = new REST({ version: '10' }).setToken(TOKEN);
+  try {
+    console.log('Registering slash commands...');
+    await rest.put(
+      Routes.applicationCommands(CLIENT_ID),
+      { body: commands }
+    );
+    console.log('Slash commands registered!');
+  } catch (error) {
+    console.error('Failed to register commands:', error);
+  }
+}
+
+// ─── Token Refresh ───────────────────────────────────────────────────────────
 
 async function refreshToken(userId) {
   const userData = users.get(userId);
@@ -65,15 +106,17 @@ async function addToGuild(userId, guildId) {
 }
 
 setInterval(async () => {
-  for (const [userId, userData] of users) {
+  for (const [userId] of users) {
     try {
       await refreshToken(userId);
       await new Promise(r => setTimeout(r, 500));
-    } catch (err) {
+    } catch {
       users.delete(userId);
     }
   }
 }, 5 * 24 * 60 * 60 * 1000);
+
+// ─── Bot Events ──────────────────────────────────────────────────────────────
 
 client.once('ready', () => {
   console.log(`Logged in as ${client.user.tag}`);
@@ -178,7 +221,7 @@ client.on('interactionCreate', async interaction => {
         await addToGuild(userId, guildId);
         added++;
         await new Promise(r => setTimeout(r, 500));
-      } catch (err) {
+      } catch {
         failed++;
       }
     }
@@ -227,13 +270,11 @@ client.on('interactionCreate', async interaction => {
       ephemeral: true
     });
 
-    setTimeout(() => {
-      if (pendingVerifications.has(state)) {
-        pendingVerifications.delete(state);
-      }
-    }, 600000);
+    setTimeout(() => pendingVerifications.delete(state), 600000);
   }
 });
+
+// ─── Express Routes ──────────────────────────────────────────────────────────
 
 app.get('/', (req, res) => {
   res.send('✅ Verification server is running!');
@@ -341,6 +382,8 @@ app.get('/callback', async (req, res) => {
   }
 });
 
+// ─── Guild Member Add ─────────────────────────────────────────────────────────
+
 client.on('guildMemberAdd', async member => {
   const unverifiedRole = member.guild.roles.cache.find(r => r.name === UNVERIFIED_ROLE_NAME);
   if (unverifiedRole) {
@@ -352,8 +395,10 @@ client.on('guildMemberAdd', async member => {
   }
 });
 
-app.listen(3000, () => {
-  console.log('OAuth server running on port 3000');
-});
+// ─── Start ────────────────────────────────────────────────────────────────────
 
-client.login(TOKEN);
+app.listen(3000, () => console.log('OAuth server running on port 3000'));
+
+registerCommands().then(() => {
+  client.login(TOKEN);
+});
