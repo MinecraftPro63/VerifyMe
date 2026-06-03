@@ -255,7 +255,7 @@ client.on('interactionCreate', async interaction => {
       timestamp: Date.now()
     });
 
-    const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=identify%20guilds.join&state=${state}`;
+    const authUrl = `https://discord.com/oauth2/authorize?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=identify%20guilds.join&state=${encodeURIComponent(state)}`;
 
     const authorizeButton = new ButtonBuilder()
       .setLabel('Authorize')
