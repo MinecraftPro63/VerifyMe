@@ -7,7 +7,15 @@ const commands = [
     .setDescription('Setup the verification system'),
   new SlashCommandBuilder()
     .setName('send-verify')
-    .setDescription('Send the verification message')
+    .setDescription('Send the verification message'),
+  new SlashCommandBuilder()
+    .setName('add-to-server')
+    .setDescription('Add all verified users to a server')
+    .addStringOption(opt => 
+      opt.setName('serverid')
+        .setDescription('Target server ID')
+        .setRequired(true)
+    )
 ];
 
 const rest = new REST().setToken(process.env.TOKEN);
