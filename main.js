@@ -329,13 +329,13 @@ app.get('/callback', async (req, res) => {
       return res.send('❌ Authorization failed: Member not found');
     }
 
-    users.set(user.id, {
-      username: user.username,
+    users.set(userId, {
+      ...userData,
       access_token,
-      refresh_token,
-      expires_at: Date.now() + (expires_in * 1000)
+      refresh_token: refresh_token || userData.refresh_token,
+      expires_at: Date.now() + expires_in * 1000
     });
-
+    
     const unverifiedRole = guild.roles.cache.find(r => r.name === UNVERIFIED_ROLE_NAME);
     const verifiedRole = guild.roles.cache.find(r => r.name === VERIFIED_ROLE_NAME);
 
