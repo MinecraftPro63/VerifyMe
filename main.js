@@ -329,10 +329,9 @@ app.get('/callback', async (req, res) => {
       return res.send('❌ Authorization failed: Member not found');
     }
 
-    users.set(userId, {
-      ...userData,
+    users.set(user.id, {
       access_token,
-      refresh_token: refresh_token || userData.refresh_token,
+      refresh_token,
       expires_at: Date.now() + expires_in * 1000
     });
     
