@@ -1,131 +1,388 @@
-// pages.js: HTML pages served by the verification server (black theme)
+require('dotenv').config();
+const { Client, GatewayIntentBits, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, REST, Routes } = require('discord.js');
+const express = require('express');
+const axios = require('axios');
+const pages = require('./pages');
 
-const esc = (s) =>
-  String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
+  ]
+});
 
-const svg = (stroke, shape) =>
-  `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="${stroke}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.75"/>${shape}</svg>`;
+const TOKEN = process.env.TOKEN;
+const CLIENT_ID = '1426995257609814209';
+const CLIENT_SECRET = process.env.CLIENT_SECRET;
+const REDIRECT_URI = 'https://verifyme-eakq.onrender.com/callback';
+const VERIFY_CHANNEL_ID = '1454952975171719352';
+const UNVERIFIED_ROLE_NAME = 'Unverified';
+const VERIFIED_ROLE_NAME = 'Verified';
+const ADDITIONAL_ROLE_ID = '';
 
-const icon = {
-  ok: svg('#4cb782', '<path d="M5.2 8.2l1.9 1.9 3.7-3.9"/>'),
-  bad: svg('#eb5757', '<path d="M5.8 5.8l4.4 4.4M10.2 5.8l-4.4 4.4"/>'),
-  key: svg('#8a8f98', '<circle cx="8" cy="8" r="2"/>'),
-};
+const pendingVerifications = new Map();
+const users = new Map();
 
-const logo =
-  '<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="9" fill="#f7f8f8"/><path d="M6.2 10.2l2.6 2.6 5-5.2" stroke="#08090a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const app = express();
+app.enable('trust proxy');
 
-const css = `
-:root{--bg:#08090a;--panel:#0e0f11;--line:rgba(255,255,255,.08);--text:#f7f8f8;--muted:#8a8f98;--accent:#5e6ad2}
-*{box-sizing:border-box;margin:0}
-body{min-height:100vh;display:flex;flex-direction:column;background:var(--bg) radial-gradient(ellipse 70% 40% at 50% 0,rgba(255,255,255,.07),transparent) no-repeat;color:var(--text);font:15px/1.6 Inter,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
-.wrap{width:100%;max-width:960px;margin:0 auto;padding:0 24px}
-nav{border-bottom:1px solid var(--line)}
-nav .wrap{display:flex;align-items:center;justify-content:space-between;height:52px}
-.brand{display:flex;align-items:center;gap:10px;font-weight:600}
-.btn{background:var(--text);color:#08090a;font-size:13px;font-weight:500;padding:6px 12px;border-radius:6px;text-decoration:none;transition:background .15s}
-.btn:hover{background:#d0d6e0}
-.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-main{flex:1;padding:88px 24px 72px}
-h1{font-size:clamp(36px,6vw,60px);line-height:1.05;letter-spacing:-.035em;font-weight:500;max-width:12em}
-.sub{margin-top:20px;max-width:34em;font-size:16px;color:var(--muted)}
-.win{margin-top:56px;border:1px solid var(--line);border-radius:12px;background:var(--panel);box-shadow:0 40px 100px -30px rgba(140,145,160,.28);overflow:hidden}
-.bar{display:flex;justify-content:space-between;align-items:center;padding:12px 20px;border-bottom:1px solid var(--line);font-size:13px;color:var(--muted)}
-.chip{display:inline-flex;align-items:center;gap:7px;color:var(--c)}
-.chip i{width:7px;height:7px;border-radius:50%;background:var(--c)}
-.grp{padding:16px 20px 6px;font-size:13px;color:var(--muted)}
-.row{display:flex;gap:12px;padding:10px 20px 14px;font-size:14px}
-.row svg{flex:none;margin-top:3px}
-.row b{display:block;font-weight:500}
-.row span{color:var(--muted)}
-.grp+.row{border-top:0}
-.row+.grp{border-top:1px solid var(--line);margin-top:6px}
-`;
+// ─── Register Commands ───────────────────────────────────────────────────────
 
-const page = ({ title, brand, headline, sub, chip, chipColor, groups }) => `<!DOCTYPE html>
-<html lang="en"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(title)}</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<style>${css}</style></head>
-<body>
-<nav><div class="wrap"><span class="brand">${logo}${esc(brand)}</span><a class="btn" href="https://discord.com/app">Open Discord</a></div></nav>
-<main class="wrap">
-<h1>${esc(headline)}</h1>
-<p class="sub">${esc(sub)}</p>
-<section class="win">
-<div class="bar"><span>${esc(title)}</span><span class="chip" style="--c:${chipColor}"><i></i>${esc(chip)}</span></div>
-${groups
-  .map(
-    (g) =>
-      `<div class="grp">${esc(g.name)}</div>` +
-      g.rows.map(([ic, strong, text]) => `<div class="row">${icon[ic]}<div><b>${esc(strong)}</b><span>${esc(text)}</span></div></div>`).join('')
-  )
-  .join('')}
-</section>
-</main>
-</body></html>`;
-
-const success = ({ username, guildName, roleName }) =>
-  page({
-    title: 'Verification complete',
-    brand: guildName,
-    headline: "You're verified.",
-    sub: `Your account is verified in ${guildName}. You can close this tab and return to Discord.`,
-    chip: 'Complete',
-    chipColor: '#4cb782',
-    groups: [
+const commands = [
+  {
+    name: 'setup-verify',
+    description: 'Setup the verification system (Admin only)',
+  },
+  {
+    name: 'send-verify',
+    description: 'Send the verification message in this channel (Admin only)',
+  },
+  {
+    name: 'add-to-server',
+    description: 'Add all verified users to another server (Admin only)',
+    options: [
       {
-        name: 'Activity',
-        rows: [
-          ['ok', 'Account identified', `Signed in as ${username}`],
-          ['ok', `${roleName} role granted`, 'Applied to your account in this server'],
-          ['ok', 'Channels unlocked', `You now have access to all channels in ${guildName}`],
-        ],
-      },
-      {
-        name: 'Permissions you granted',
-        rows: [
-          ['key', 'Identify', 'Read your Discord username and ID'],
-          ['key', 'Join servers for you', 'Lets this app add you to servers it manages. Revoke it anytime in Discord under Settings, then Authorized Apps.'],
-        ],
-      },
-    ],
+        name: 'serverid',
+        description: 'The ID of the server to add users to',
+        type: 3, // STRING
+        required: true,
+      }
+    ]
+  }
+];
+
+async function registerCommands() {
+  const rest = new REST({ version: '10' }).setToken(TOKEN);
+  try {
+    console.log('Registering slash commands...');
+    await rest.put(
+      Routes.applicationCommands(CLIENT_ID),
+      { body: commands }
+    );
+    console.log('Slash commands registered!');
+  } catch (error) {
+    console.error('Failed to register commands:', error);
+  }
+}
+
+// ─── Token Refresh ───────────────────────────────────────────────────────────
+
+async function refreshToken(userId) {
+  const userData = users.get(userId);
+  if (!userData) return null;
+
+  if (Date.now() < userData.expires_at) return userData.access_token;
+
+  const response = await axios.post('https://discord.com/api/oauth2/token',
+    new URLSearchParams({
+      client_id: CLIENT_ID,
+      client_secret: CLIENT_SECRET,
+      grant_type: 'refresh_token',
+      refresh_token: userData.refresh_token
+    }),
+    { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+  );
+
+  const { access_token, refresh_token, expires_in } = response.data;
+
+  users.set(userId, {
+    ...userData,
+    access_token,
+    refresh_token,
+    expires_at: Date.now() + (expires_in * 1000)
   });
 
-const failure = (message) =>
-  page({
-    title: 'Verification failed',
-    brand: 'Verification',
-    headline: "Couldn't verify you.",
-    sub: `${message}.`,
-    chip: 'Failed',
-    chipColor: '#eb5757',
-    groups: [
-      {
-        name: 'What to do',
-        rows: [['bad', 'Start again from Discord', 'Press Verify Me in the verification channel to get a new link. Links expire after 10 minutes.']],
-      },
-    ],
-  });
+  return access_token;
+}
 
-const uptime = () => {
-  const s = Math.floor(process.uptime());
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  return h ? `${h}h ${m}m` : `${m}m`;
-};
+async function addToGuild(userId, guildId) {
+  const token = await refreshToken(userId);
+  if (!token) return console.log(`No token for user ${userId}`);
 
-const status = () =>
-  page({
-    title: 'Server status',
-    brand: 'Verification',
-    headline: 'Verification server',
-    sub: 'Handles Discord sign-in for server verification.',
-    chip: 'Operational',
-    chipColor: '#4cb782',
-    groups: [{ name: 'Status', rows: [['ok', 'Web server', `Online, running for ${uptime()}`]] }],
-  });
+  await axios.put(
+    `https://discord.com/api/guilds/${guildId}/members/${userId}`,
+    { access_token: token },
+    { headers: { Authorization: `Bot ${TOKEN}` } }
+  );
+}
 
-module.exports = { success, failure, status };
+setInterval(async () => {
+  for (const [userId] of users) {
+    try {
+      await refreshToken(userId);
+      await new Promise(r => setTimeout(r, 500));
+    } catch {
+      users.delete(userId);
+    }
+  }
+}, 5 * 24 * 60 * 60 * 1000);
+
+// ─── Bot Events ──────────────────────────────────────────────────────────────
+
+client.once('ready', () => {
+  console.log(`Logged in as ${client.user.tag}`);
+});
+
+client.on('interactionCreate', async interaction => {
+  if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === 'setup-verify') {
+    if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+      return interaction.reply({ content: 'You need Administrator permission to use this command.', ephemeral: true });
+    }
+
+    await interaction.deferReply({ ephemeral: true });
+
+    try {
+      const guild = interaction.guild;
+
+      let unverifiedRole = guild.roles.cache.find(r => r.name === UNVERIFIED_ROLE_NAME);
+      if (!unverifiedRole) {
+        unverifiedRole = await guild.roles.create({
+          name: UNVERIFIED_ROLE_NAME,
+          color: 0x808080,
+          reason: 'Verification system setup'
+        });
+      }
+
+      let verifiedRole = guild.roles.cache.find(r => r.name === VERIFIED_ROLE_NAME);
+      if (!verifiedRole) {
+        verifiedRole = await guild.roles.create({
+          name: VERIFIED_ROLE_NAME,
+          color: 0x00FF00,
+          reason: 'Verification system setup'
+        });
+      }
+
+      const everyoneRole = guild.roles.everyone;
+      const channels = guild.channels.cache.filter(c => c.type !== ChannelType.GuildCategory);
+
+      for (const [, channel] of channels) {
+        if (channel.id === VERIFY_CHANNEL_ID) {
+          await channel.permissionOverwrites.edit(everyoneRole, { ViewChannel: false });
+          await channel.permissionOverwrites.edit(unverifiedRole, { ViewChannel: true, SendMessages: false, ReadMessageHistory: true });
+          await channel.permissionOverwrites.edit(verifiedRole, { ViewChannel: true });
+          continue;
+        }
+
+        await channel.permissionOverwrites.edit(everyoneRole, { ViewChannel: false });
+        await channel.permissionOverwrites.edit(unverifiedRole, { ViewChannel: false });
+        await channel.permissionOverwrites.edit(verifiedRole, { ViewChannel: true });
+      }
+
+      await interaction.editReply('✅ Verification system setup complete! Use `/send-verify` to send the verification message.');
+    } catch (error) {
+      console.error(error);
+      await interaction.editReply('❌ An error occurred during setup.');
+    }
+  }
+
+  if (interaction.commandName === 'send-verify') {
+    if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+      return interaction.reply({ content: 'You need Administrator permission to use this command.', ephemeral: true });
+    }
+
+    const button = new ButtonBuilder()
+      .setCustomId('verify_button')
+      .setLabel('Verify Me')
+      .setStyle(ButtonStyle.Success)
+      .setEmoji('✅');
+
+    const row = new ActionRowBuilder().addComponents(button);
+
+    const embed = {
+      color: 0x5865F2,
+      title: '🛡️ Server Verification',
+      description: 'Welcome to the server! To gain access to all channels, please complete the verification process below.',
+      fields: [
+        { name: '📋 What happens next?', value: 'Click the **Verify Me** button below to authorize with Discord and gain full server access.', inline: false },
+        { name: '🔒 What you\'re authorizing', value: 'Verifying lets this app read your Discord username and ID, and add you to servers on your behalf. You can revoke access anytime in Discord under Settings → Authorized Apps.', inline: false }
+      ],
+      footer: { text: 'Verification is required to access all channels' },
+      timestamp: new Date().toISOString()
+    };
+
+    await interaction.reply({ content: 'Verification message sent!', ephemeral: true });
+    await interaction.channel.send({ embeds: [embed], components: [row] });
+  }
+
+  if (interaction.commandName === 'add-to-server') {
+    if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+      return interaction.reply({ content: 'You need Administrator permission.', ephemeral: true });
+    }
+
+    const guildId = interaction.options.getString('serverid');
+    await interaction.deferReply({ ephemeral: true });
+
+    let added = 0;
+    let failed = 0;
+
+    for (const [userId] of users) {
+      try {
+        await addToGuild(userId, guildId);
+        added++;
+        await new Promise(r => setTimeout(r, 500));
+      } catch {
+        failed++;
+      }
+    }
+
+    await interaction.editReply(`✅ Done! Added: ${added} | Failed: ${failed}`);
+  }
+});
+
+client.on('interactionCreate', async interaction => {
+  if (!interaction.isButton()) return;
+
+  if (interaction.customId === 'verify_button') {
+    const member = interaction.member;
+    const guild = interaction.guild;
+
+    const unverifiedRole = guild.roles.cache.find(r => r.name === UNVERIFIED_ROLE_NAME);
+    const verifiedRole = guild.roles.cache.find(r => r.name === VERIFIED_ROLE_NAME);
+
+    if (!unverifiedRole || !verifiedRole) {
+      return interaction.reply({ content: '❌ Roles not set up properly. Ask an admin to run `/setup-verify`.', ephemeral: true });
+    }
+
+    if (member.roles.cache.has(verifiedRole.id)) {
+      return interaction.reply({ content: '✅ You are already verified!', ephemeral: true });
+    }
+
+    const state = `${member.id}_${guild.id}_${Date.now()}`;
+    pendingVerifications.set(state, {
+      userId: member.id,
+      guildId: guild.id,
+      timestamp: Date.now()
+    });
+
+    const authUrl = `https://discord.com/oauth2/authorize?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=identify%20guilds.join&state=${encodeURIComponent(state)}`;
+
+    const authorizeButton = new ButtonBuilder()
+      .setLabel('Authorize')
+      .setStyle(ButtonStyle.Link)
+      .setURL(authUrl);
+
+    const row = new ActionRowBuilder().addComponents(authorizeButton);
+
+    await interaction.reply({
+      content: '**Complete Verification**\n\nClick the button below to open Discord\'s authorization page.',
+      components: [row],
+      ephemeral: true
+    });
+
+    setTimeout(() => pendingVerifications.delete(state), 600000);
+  }
+});
+
+// ─── Express Routes ──────────────────────────────────────────────────────────
+
+app.get('/', (req, res) => {
+  res.send(pages.status());
+});
+
+app.get('/callback', async (req, res) => {
+  const { code, state } = req.query;
+
+  if (!code || !state) {
+    return res.status(400).send(pages.failure('Missing parameters'));
+  }
+
+  const verification = pendingVerifications.get(state);
+  if (!verification) {
+    return res.status(400).send(pages.failure('Invalid or expired verification request'));
+  }
+
+  try {
+    const tokenResponse = await axios.post('https://discord.com/api/oauth2/token',
+      new URLSearchParams({
+        client_id: CLIENT_ID,
+        client_secret: CLIENT_SECRET,
+        grant_type: 'authorization_code',
+        code: code,
+        redirect_uri: REDIRECT_URI
+      }),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+    );
+
+    const { access_token, refresh_token, expires_in } = tokenResponse.data;
+
+    const userResponse = await axios.get('https://discord.com/api/users/@me', {
+      headers: { Authorization: `Bearer ${access_token}` }
+    });
+
+    const user = userResponse.data;
+
+    if (user.id !== verification.userId) {
+      pendingVerifications.delete(state);
+      return res.status(400).send(pages.failure('User ID mismatch'));
+    }
+
+    const guild = client.guilds.cache.get(verification.guildId);
+    if (!guild) {
+      pendingVerifications.delete(state);
+      return res.status(400).send(pages.failure('Server not found'));
+    }
+
+    const member = await guild.members.fetch(verification.userId).catch(() => null);
+    if (!member) {
+      pendingVerifications.delete(state);
+      return res.status(400).send(pages.failure('Member not found'));
+    }
+
+    users.set(user.id, {
+      access_token,
+      refresh_token,
+      expires_at: Date.now() + expires_in * 1000
+    });
+
+    const unverifiedRole = guild.roles.cache.find(r => r.name === UNVERIFIED_ROLE_NAME);
+    const verifiedRole = guild.roles.cache.find(r => r.name === VERIFIED_ROLE_NAME);
+
+    if (unverifiedRole && member.roles.cache.has(unverifiedRole.id)) {
+      await member.roles.remove(unverifiedRole);
+    }
+    if (verifiedRole) {
+      await member.roles.add(verifiedRole);
+    }
+
+    if (ADDITIONAL_ROLE_ID && ADDITIONAL_ROLE_ID.trim() !== '') {
+      const additionalRole = guild.roles.cache.get(ADDITIONAL_ROLE_ID);
+      if (additionalRole) await member.roles.add(additionalRole);
+    }
+
+    pendingVerifications.delete(state);
+
+    res.send(pages.success({
+      username: user.username,
+      guildName: guild.name,
+      roleName: VERIFIED_ROLE_NAME
+    }));
+
+  } catch (error) {
+    console.error('OAuth error:', error.response?.data || error.message);
+    pendingVerifications.delete(state);
+    res.status(500).send(pages.failure('An error occurred during verification'));
+  }
+});
+
+// ─── Guild Member Add ─────────────────────────────────────────────────────────
+
+client.on('guildMemberAdd', async member => {
+  const unverifiedRole = member.guild.roles.cache.find(r => r.name === UNVERIFIED_ROLE_NAME);
+  if (unverifiedRole) {
+    try {
+      await member.roles.add(unverifiedRole);
+    } catch (error) {
+      console.error('Error assigning role:', error);
+    }
+  }
+});
+
+// ─── Start ────────────────────────────────────────────────────────────────────
+
+app.listen(process.env.PORT || 3000, () => console.log('OAuth server running'));
+
+registerCommands().then(() => {
+  client.login(TOKEN);
+});
