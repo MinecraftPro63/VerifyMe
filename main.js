@@ -356,7 +356,7 @@ app.get('/callback', async (req, res) => {
     res.send(pages.success({
       username: user.username,
       guildName: guild.name,
-      roleName: VERIFIED_ROLE_NAME
+      guildId: guild.id
     }));
 
   } catch (error) {
