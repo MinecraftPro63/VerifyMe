@@ -547,6 +547,14 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 
 app.listen(process.env.PORT || 3000, () => console.log('OAuth server running'));
 
-registerCommands().then(() => {
-  client.login(TOKEN);
+console.log(`Token present: ${Boolean(TOKEN)} (length ${TOKEN ? TOKEN.length : 0})`);
+
+// Log in first, independent of command registration
+client.login(TOKEN).catch(err => {
+  console.error('Login failed:', err);
+  process.exit(1);
 });
+
+// Registration runs in the background and can never block login.
+// Once your commands exist, you can delete this line and use deploy-commands.js instead.
+registerCommands();
