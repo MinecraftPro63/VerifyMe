@@ -17,19 +17,14 @@ const express = require('express');
 const axios = require('axios');
 const pages = require('./pages');
 
-// ─── Global error safety nets (prevents silent crashes) ──────────────────────
-
 process.on('unhandledRejection', err => console.error('Unhandled rejection:', err));
 process.on('uncaughtException', err => console.error('Uncaught exception:', err));
-
-// ─── Client ──────────────────────────────────────────────────────────────────
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
   ],
-  // Keep memory low on small hosts
   makeCache: Options.cacheWithLimits({
     ...Options.DefaultMakeCacheSettings,
     MessageManager: 0,
@@ -46,8 +41,6 @@ client.on('shardDisconnect', (e, id) => console.warn(`Shard ${id} disconnected (
 client.on('shardReconnecting', id => console.log(`Shard ${id} reconnecting...`));
 client.on('shardResume', (id, replayed) => console.log(`Shard ${id} resumed (${replayed} events replayed)`));
 
-// ─── Config ──────────────────────────────────────────────────────────────────
-
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = '1426995257609814209';
 const CLIENT_SECRET = process.env.CLIENT_SECRET;
@@ -57,16 +50,12 @@ const UNVERIFIED_ROLE_NAME = 'Unverified';
 const VERIFIED_ROLE_NAME = 'Verified';
 const ADDITIONAL_ROLE_ID = '';
 
-// Optional: path on a PERSISTENT disk (Render free tier disk is wiped on restart)
 const DATA_FILE = process.env.DATA_FILE || './users.json';
 
-// Optional: your public URL for the self-ping. Render sets RENDER_EXTERNAL_URL automatically.
 const SELF_URL = process.env.RENDER_EXTERNAL_URL || 'https://verifyme-eakq.onrender.com';
 
 const pendingVerifications = new Map();
 const users = new Map();
-
-// ─── Persistence (best effort) ───────────────────────────────────────────────
 
 function loadUsers() {
   try {
@@ -81,7 +70,6 @@ function loadUsers() {
 
 let saveTimer = null;
 function saveUsers() {
-  // Debounce writes
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     try {
@@ -94,12 +82,8 @@ function saveUsers() {
 
 loadUsers();
 
-// ─── Express ─────────────────────────────────────────────────────────────────
-
 const app = express();
 app.enable('trust proxy');
-
-// ─── Register Commands ───────────────────────────────────────────────────────
 
 const commands = [
   {
@@ -117,7 +101,7 @@ const commands = [
       {
         name: 'serverid',
         description: 'The ID of the server to add users to',
-        type: 3, // STRING
+        type: 3,
         required: true,
       }
     ]
@@ -134,8 +118,6 @@ async function registerCommands() {
     console.error('Failed to register commands:', error);
   }
 }
-
-// ─── Token Refresh ───────────────────────────────────────────────────────────
 
 async function refreshToken(userId) {
   const userData = users.get(userId);
@@ -178,7 +160,6 @@ async function addToGuild(userId, guildId) {
   );
 }
 
-// Refresh all tokens every 5 days so they don't expire
 setInterval(async () => {
   for (const [userId] of users) {
     try {
@@ -191,15 +172,12 @@ setInterval(async () => {
   }
 }, 5 * 24 * 60 * 60 * 1000);
 
-// Clean up expired pending verifications
 setInterval(() => {
   const now = Date.now();
   for (const [state, v] of pendingVerifications) {
     if (now - v.timestamp > 10 * 60 * 1000) pendingVerifications.delete(state);
   }
 }, 60 * 1000);
-
-// ─── Safe reply helper ───────────────────────────────────────────────────────
 
 async function safeRespond(interaction, payload) {
   try {
@@ -212,15 +190,12 @@ async function safeRespond(interaction, payload) {
   }
 }
 
-// ─── Bot Events ──────────────────────────────────────────────────────────────
-
-client.once('ready', () => {
+client.once('clientReady', () => {
   console.log(`Logged in as ${client.user.tag}`);
 });
 
 client.on('interactionCreate', async interaction => {
   try {
-    // ── Slash commands ──
     if (interaction.isChatInputCommand()) {
       if (!interaction.inGuild()) {
         return interaction.reply({ content: 'This command can only be used in a server.', flags: MessageFlags.Ephemeral });
@@ -339,7 +314,6 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
-    // ── Buttons ──
     if (interaction.isButton() && interaction.customId === 'verify_button') {
       if (!interaction.inGuild()) return;
 
@@ -388,13 +362,10 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-// ─── Express Routes ──────────────────────────────────────────────────────────
-
 app.get('/', (req, res) => {
   res.send(pages.status());
 });
 
-// Point UptimeRobot / cron-job.org here every 5 minutes
 app.get('/health', (req, res) => {
   res.json({
     ok: true,
@@ -493,8 +464,6 @@ app.get('/callback', async (req, res) => {
   }
 });
 
-// ─── Guild Member Add ────────────────────────────────────────────────────────
-
 client.on('guildMemberAdd', async member => {
   const unverifiedRole = member.guild.roles.cache.find(r => r.name === UNVERIFIED_ROLE_NAME);
   if (unverifiedRole) {
@@ -506,31 +475,23 @@ client.on('guildMemberAdd', async member => {
   }
 });
 
-// ─── Keep-alive + heartbeat logging ──────────────────────────────────────────
-
-// Self-ping through the public URL. An external pinger (UptimeRobot) is more reliable,
-// so treat this as a backup rather than a replacement.
 setInterval(() => {
   axios.get(`${SELF_URL}/health`, { timeout: 10000 }).catch(err => {
     console.warn('Self-ping failed:', err.message);
   });
 }, 4 * 60 * 1000);
 
-// Log gateway status every 10 minutes so you can see when it dies in the logs
 setInterval(() => {
   console.log(
     `[heartbeat] ready=${client.isReady()} ping=${client.ws.ping}ms ` +
     `uptime=${Math.floor(process.uptime() / 3600)}h ` +
     `mem=${Math.round(process.memoryUsage().rss / 1024 / 1024)}MB users=${users.size}`
   );
-  // If the gateway has been dead and not recovering, exit so the host restarts us
-  if (!client.isReady() && client.ws.status !== 0) {
+  if (process.env.AUTO_RESTART === 'true' && !client.isReady() && client.ws.status !== 0) {
     console.error('Client not ready, forcing restart.');
     process.exit(1);
   }
 }, 10 * 60 * 1000);
-
-// ─── Graceful shutdown ───────────────────────────────────────────────────────
 
 function shutdown(signal) {
   console.log(`${signal} received, shutting down...`);
@@ -543,18 +504,37 @@ function shutdown(signal) {
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
 
-// ─── Start ───────────────────────────────────────────────────────────────────
-
 app.listen(process.env.PORT || 3000, () => console.log('OAuth server running'));
 
 console.log(`Token present: ${Boolean(TOKEN)} (length ${TOKEN ? TOKEN.length : 0})`);
+console.log(`Node ${process.version}`);
 
-// Log in first, independent of command registration
+client.rest.on('rateLimited', info => console.warn('[rate limited]', JSON.stringify(info)));
+
+client.on('debug', msg => {
+  if (!client.isReady()) console.log('[debug]', msg.replace(TOKEN || '', '[token]'));
+});
+
+axios
+  .get('https://discord.com/api/v10/gateway', { timeout: 10000, validateStatus: () => true })
+  .then(r =>
+    console.log(
+      '[net test]',
+      r.status,
+      'retry-after:',
+      r.headers['retry-after'],
+      typeof r.data === 'string' ? r.data.slice(0, 200) : JSON.stringify(r.data)
+    )
+  )
+  .catch(e => console.log('[net test] failed:', e.code || e.message));
+
+setTimeout(() => {
+  if (!client.isReady()) console.warn('[watchdog] still not logged in after 60s');
+}, 60 * 1000);
+
 client.login(TOKEN).catch(err => {
   console.error('Login failed:', err);
   process.exit(1);
 });
 
-// Registration runs in the background and can never block login.
-// Once your commands exist, you can delete this line and use deploy-commands.js instead.
 registerCommands();
